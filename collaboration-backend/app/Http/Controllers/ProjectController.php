@@ -19,8 +19,17 @@ class ProjectController extends Controller
         } elseif ($user->role === 'chef_projet') {
             $projects = Project::where('chef_id', $user->id)->with('chef')->get();
         } else {
-            // الموظف أو المتدرب كيشوف غير المشاريع اللي هو عضو فيها
-            $projects = $user->projects()->with('chef')->get();
+            // الموظف أو المتدرب كيشوف المشاريع اللي هو عضو فيها
+            // أو اللي عندو tasks مُعيَّنة فيها (باش يدعم البيانات القديمة)
+            $memberProjectIds = $user->projects()->pluck('projects.id');
+            $assignedProjectIds = \App\Models\Task::where('assigned_to', $user->id)
+                ->pluck('project_id');
+
+            $allProjectIds = $memberProjectIds->merge($assignedProjectIds)->unique();
+
+            $projects = Project::with('chef')
+                ->whereIn('id', $allProjectIds)
+                ->get();
         }
 
         return response()->json($projects, 200);
@@ -55,6 +64,8 @@ class ProjectController extends Controller
             ]);
 
             // ب) إنشاء الـ Tasks المرتبطة بالمشروع أوتوماتيكياً
+            // وجمع IDs ديال كل المستخدمين المُعيَّنين
+            $assignedUserIds = [];
             foreach ($request->tasks as $taskData) {
                 Task::create([
                     'project_id'  => $project->id,
@@ -62,11 +73,22 @@ class ProjectController extends Controller
                     'description' => $taskData['description'] ?? null,
                     'priority'    => $taskData['priority'],
                     'assigned_to' => $taskData['assigned_to'] ?? null,
-                    'status'      => 'a_faire', // الديفو ديال أي تاسك جديدة
+                    'status'      => 'a_faire',
                 ]);
+
+                // جمع ID ديال المستخدم المُعيَّن (بلا تكرار)
+                if (!empty($taskData['assigned_to'])) {
+                    $assignedUserIds[] = (int) $taskData['assigned_to'];
+                }
             }
 
-            // ج) حفظ التغييرات كاملة يلا داز كولشي بنجاح
+            // ج) زيادة المستخدمين المُعيَّنين لـ project_members باش يشوفو المشروع
+            // syncWithoutDetaching: تزيد فقط، ما تمسحش اللي كانو موجودين
+            if (!empty($assignedUserIds)) {
+                $project->members()->syncWithoutDetaching(array_unique($assignedUserIds));
+            }
+
+            // د) حفظ التغييرات كاملة يلا داز كولشي بنجاح
             DB::commit();
 
             // د) جلب الـ Tasks الجداد مع الـ Relation ديال الـ Assignee باش نصيفطوهم واجدين للـ React

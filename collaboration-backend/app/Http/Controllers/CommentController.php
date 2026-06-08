@@ -7,6 +7,17 @@ use Illuminate\Http\Request;
 
 class CommentController extends Controller
 {
+    // جلب تعليقات مهمة معينة
+    public function index($taskId)
+    {
+        $comments = Comment::with('user:id,name,role')
+            ->where('task_id', $taskId)
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        return response()->json($comments, 200);
+    }
+
     // إضافة تعليق جديد وسط المهمة
     public function store(Request $request)
     {
@@ -23,7 +34,7 @@ class CommentController extends Controller
 
         return response()->json([
             'message' => 'Commentaire ajouté avec succès',
-            'comment' => $comment->load('user')
+            'comment' => $comment->load('user:id,name,role')
         ], 201);
     }
 }
